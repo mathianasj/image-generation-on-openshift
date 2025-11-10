@@ -5,7 +5,7 @@ import os
 from typing import Dict, Union
 
 import torch
-from diffusers import StableDiffusionXLPipeline, StableDiffusionXLImg2ImgPipeline
+from diffusers import DiffusionPipeline
 from kserve import InferRequest, InferResponse, Model, ModelServer, model_server
 from kserve.errors import InvalidInput
 
@@ -23,7 +23,7 @@ class DiffusersModel(Model):
     def load(self):
         # Load the model
         if args.single_file_model and args.single_file_model != "":
-            pipeline = StableDiffusionXLPipeline.from_single_file(
+            pipeline = DiffusionPipeline.from_single_file(
                 args.single_file_model,
                 torch_dtype=torch.float16,
                 variant="fp16",
@@ -31,7 +31,7 @@ class DiffusersModel(Model):
                 use_safetensors=True,
             )
         else:
-            pipeline = StableDiffusionXLPipeline.from_pretrained(
+            pipeline = DiffusionPipeline.from_pretrained(
                 self.model_id,
                 torch_dtype=torch.float16,
                 variant="fp16",
@@ -53,42 +53,6 @@ class DiffusersModel(Model):
         else:
             pipeline.to(torch.device("cuda"))
         self.pipeline = pipeline
-
-        # Load the refiner model
-        if args.use_refiner:
-            if args.refiner_single_file_model and args.refiner_single_file_model != "":
-                refiner = StableDiffusionXLImg2ImgPipeline.from_single_file(
-                    args.refiner_single_file_model,
-                    torch_dtype=torch.float16,
-                    variant="fp16",
-                    safety_checker=None,
-                    use_safetensors=True,
-                    text_encoder_2=pipeline.text_encoder_2,
-                    vae=pipeline.vae,
-                )
-            else:
-                refiner = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-                    self.refiner_id,
-                    torch_dtype=torch.float16,
-                    variant="fp16",
-                    safety_checker=None,
-                    use_safetensors=True,
-                )
-            if args.device:
-                print(f"Loading refiner model on device: {args.device}")
-                if args.device == "cuda":
-                    refiner.to(torch.device("cuda"))
-                elif args.device == "cpu":
-                    refiner.to(torch.device("cpu"))
-                elif args.device == "enable_model_cpu_offload":
-                    refiner.enable_model_cpu_offload()
-                elif args.device == "enable_sequential_cpu_offload":
-                    refiner.enable_sequential_cpu_offload()
-                else:
-                    raise ValueError(f"Invalid device: {args.device}")
-            else:
-                refiner.to(torch.device("cuda"))
-            self.refiner = refiner
 
         # The ready flag is used by model ready endpoint for readiness probes,
         # set to True when model is loaded successfully without exceptions.
@@ -120,12 +84,7 @@ class DiffusersModel(Model):
         payload = self.convert_lists_to_tuples(payload)
 
         # Create the image, without refiner if not needed
-        if not args.use_refiner:
-            image = self.pipeline(**payload).images[0]
-        else:
-            denoising_limit = payload["denoising_limit"]
-            image = self.pipeline(**payload, output_type="latent", denoising_end=denoising_limit).images
-            image = self.refiner(**payload,image=image, denoising_start=denoising_limit).images[0]
+        image = self.pipeline(**payload).images[0]
         
         # Convert the image to base64
         image_bytes = io.BytesIO()
