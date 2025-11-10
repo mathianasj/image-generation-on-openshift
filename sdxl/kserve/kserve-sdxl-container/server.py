@@ -32,7 +32,7 @@ class DiffusersModel(Model):
             )
         else:
             pipeline = DiffusionPipeline.from_pretrained(
-                self.model_id, dtype=torch.bfloat16, device_map="cuda")
+                self.model_id, dtype=torch.bfloat16)
         if args.device:
             print(f"Loading model on device: {args.device}")
             if args.device == "cuda":
